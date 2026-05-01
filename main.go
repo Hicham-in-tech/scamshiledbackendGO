@@ -1,8 +1,7 @@
-package main
+package handler
 
 import (
 	"net/http"
-	"os"
 	"sync"
 	"scamshield-backend/app/handlers"
 	"scamshield-backend/app/middleware"
@@ -82,12 +81,4 @@ func getRouter() *gin.Engine {
 // Handler is the exported entrypoint Vercel expects for Go functions.
 func Handler(w http.ResponseWriter, r *http.Request) {
 	getRouter().ServeHTTP(w, r)
-}
-
-func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8000"
-	}
-	http.ListenAndServe(":"+port, getRouter())
 }
