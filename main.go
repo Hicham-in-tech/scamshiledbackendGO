@@ -1,7 +1,9 @@
 package main
 
 import (
+	"net/http"
 	"os"
+	"sync"
 	"scamshield-backend/app/handlers"
 	"scamshield-backend/app/middleware"
 	"scamshield-backend/app/services"
@@ -12,62 +14,80 @@ import (
 	"github.com/joho/godotenv"
 )
 
-func main() {
-	// Load environment variables
-	godotenv.Load()
+var (
+	router     *gin.Engine
+	routerOnce sync.Once
+)
 
-	// Initialize database
-	db := config.InitDB()
+func getRouter() *gin.Engine {
+	routerOnce.Do(func() {
+		// Load environment variables
+		godotenv.Load()
 
-	// Create router
-	router := gin.Default()
+		// Initialize database
+		db := config.InitDB()
 
-	// CORS configuration
-	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://localhost:5173", "https://vercel.app"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"Content-Type", "Authorization", "X-User-ID"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-	}))
+		// Create router
+		r := gin.Default()
 
-	// Initialize services
-	urlAnalyzer := services.NewURLRiskAnalyzer()
-	emailReviewer := services.NewEmailSecurityReviewer()
+		// CORS configuration
+		r.Use(cors.New(cors.Config{
+			AllowOrigins:     []string{"http://localhost:3000", "http://localhost:5173", "https://*.vercel.app"},
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"Content-Type", "Authorization", "X-User-ID"},
+			ExposeHeaders:    []string{"Content-Length"},
+			AllowWildcard:    true,
+			AllowCredentials: true,
+		}))
 
-	// Initialize handlers
-	authHandler := handlers.NewAuthHandler(db)
-	scanHandler := handlers.NewScanHandler(db, urlAnalyzer)
-	emailHandler := handlers.NewEmailReviewHandler(db, emailReviewer)
+		// Initialize services
+		urlAnalyzer := services.NewURLRiskAnalyzer()
+		emailReviewer := services.NewEmailSecurityReviewer()
 
-	// Health check
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
+		// Initialize handlers
+		authHandler := handlers.NewAuthHandler(db)
+		scanHandler := handlers.NewScanHandler(db, urlAnalyzer)
+		emailHandler := handlers.NewEmailReviewHandler(db, emailReviewer)
+
+		// Health check
+		r.GET("/health", func(c *gin.Context) {
+			c.JSON(200, gin.H{"status": "ok"})
+		})
+
+		// Auth routes
+		r.POST("/auth/register", authHandler.Register)
+		r.POST("/auth/login", authHandler.Login)
+
+		// Protected routes
+		protected := r.Group("/api")
+		protected.Use(middleware.AuthMiddleware())
+		{
+			// Scan routes
+			protected.POST("/scans", scanHandler.CreateScan)
+			protected.GET("/scans", scanHandler.GetScans)
+			protected.GET("/scans/:id", scanHandler.GetScan)
+
+			// Email review routes
+			protected.POST("/emails/review", emailHandler.ReviewEmail)
+			protected.GET("/emails", emailHandler.GetReviews)
+			protected.GET("/emails/:id", emailHandler.GetReview)
+		}
+
+		router = r
 	})
 
-	// Auth routes
-	router.POST("/auth/register", authHandler.Register)
-	router.POST("/auth/login", authHandler.Login)
+	return router
+}
 
-	// Protected routes
-	protected := router.Group("/api")
-	protected.Use(middleware.AuthMiddleware())
-	{
-		// Scan routes
-		protected.POST("/scans", scanHandler.CreateScan)
-		protected.GET("/scans", scanHandler.GetScans)
-		protected.GET("/scans/:id", scanHandler.GetScan)
+// Handler is the exported entrypoint Vercel expects for Go functions.
+func Handler(w http.ResponseWriter, r *http.Request) {
+	getRouter().ServeHTTP(w, r)
+}
 
-		// Email review routes
-		protected.POST("/emails/review", emailHandler.ReviewEmail)
-		protected.GET("/emails", emailHandler.GetReviews)
-		protected.GET("/emails/:id", emailHandler.GetReview)
-	}
-
-	// Start server
+func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8000"
 	}
-	router.Run(":" + port)
+	http.ListenAndServe(":"+port, getRouter())
 }
