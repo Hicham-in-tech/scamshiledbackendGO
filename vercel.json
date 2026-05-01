@@ -1,19 +1,18 @@
 {
-  "buildCommand": "go build -o scamshield-backend main.go",
-  "outputDirectory": ".",
+  "version": 2,
+  "builds": [
+    {
+      "src": "main.go",
+      "use": "@vercel/go"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/main.go"
+    }
+  ],
   "env": {
     "GO111MODULE": "on"
-  },
-  "functions": {
-    "main.go": {
-      "memory": 1024,
-      "maxDuration": 60
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/main.go"
-    }
-  ]
+  }
 }
